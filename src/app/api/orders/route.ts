@@ -18,17 +18,22 @@ export async function POST(request: Request) {
   }
 
   try {
-    // שליחת ההזמנה למסד הנתונים
-    const result = await saveOrder(database(), input);
+  const result = await saveOrder(database(), input);
 
-    // אם ההזמנה נוצרה בהצלחה (סטטוס 201), נשלח מייל אישור
-    if (result.status === 201 && input && typeof input === "object" && "email" in input) {
-      const customerEmail = (input as { email: string }).email;
+  if (result.status === 201) {
+    // הדפסת לוג ל-Vercel כדי לוודא שגענו לכאן
+    console.log("Order saved successfully! Preparing to send email. Input was:", JSON.stringify(input));
 
-      // שליחת מייל רקע (לא עוצרים את תגובת הלקוח אם המייל מתעכב)
+    // שליפת המייל מכל שם אפשרי שקיים ב-input
+    const bodyObj = (input && typeof input === "object") ? (input as Record<string, unknown>) : {};
+    const recipientEmail = (bodyObj.email || bodyObj.customer_email || bodyObj.customerEmail) as string | undefined;
+
+    if (recipientEmail) {
+      console.log("Sending email to:", recipientEmail);
+
       resend.emails.send({
         from: 'My Shop <onboarding@resend.dev>',
-        to: [customerEmail],
+        to: [recipientEmail],
         subject: 'אישור הזמנה - רובע קפה ☕',
         html: `
           <div dir="rtl" style="font-family: Arial, sans-serif; text-align: right;">
@@ -39,14 +44,21 @@ export async function POST(request: Request) {
             <p>נתראה בקרוב!</p>
           </div>
         `,
-      }).catch((err) => console.error("Failed to send email:", err));
+      }).then((res) => {
+        console.log("Resend response:", res);
+      }).catch((err) => {
+        console.error("Resend error:", err);
+      });
+    } else {
+      console.warn("Could not find email field in input object!");
     }
+  }
 
     return Response.json(result.body, { status: result.status });
   } catch {
-    return Response.json(
-      { error: "השירות אינו זמין כרגע. נסו שוב מאוחר יותר." },
-      { status: 503 },
-    );
+      return Response.json(
+        { error: "השירות אינו זמין כרגע. נסו שוב מאוחר יותר." },
+        { status: 503 },
+      );
+    }
   }
-}
