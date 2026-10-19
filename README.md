@@ -43,6 +43,19 @@ Requires Node.js 22+ (Node 24 used here), npm, a Supabase project and a Vercel a
 
 The migration is also compatible with Supabase CLI migration workflows: after installing the CLI, run `supabase init` once to generate local configuration, `supabase login`, `supabase link --project-ref YOUR_PROJECT_REF`, then `supabase db push`. Use **either** SQL Editor on a new project **or** the CLI initially; do not apply the same migration twice. Never commit local credentials.
 
+## Order notification email (Resend)
+
+After a confirmed order save, the server sends a notification to the shop owner's fixed inbox, not to an address supplied by the customer. Configure these **server-only** variables in Vercel Production (and in ignored `.env.local` for local use), then redeploy:
+
+- `RESEND_API_KEY`: a Resend API key with email sending permission. Never prefix it with `NEXT_PUBLIC_`, commit it, or paste it into chat.
+- `ORDER_NOTIFICATION_EMAIL`: the exact email address associated with your Resend account while using the test sender.
+
+The sender is `Rova Coffee <onboarding@resend.dev>`. This recipient restriction belongs to the `resend.dev` testing sender, not to the free plan in general: https://resend.com/docs/knowledge-base/403-error-resend-dev-domain. Sending customer confirmations to arbitrary addresses requires a verified sending domain and updating the sender.
+
+The send attempt is awaited with an eight-second timeout. Resend's returned `{ error }` is checked, and an order-specific idempotency key prevents duplicate notifications for the same order within Resend's idempotency window. The email contains only the order UUID and a link to the protected administrator page; no customer details or raw provider errors are logged. Search Vercel logs for `order_email_accepted`, `order_email_configuration_missing`, `order_email_provider_rejected`, or `order_email_request_failed`. Acceptance by Resend does not prove inbox delivery; check Resend's email activity and the destination inbox/spam folder.
+
+If email configuration is missing or the provider fails, the saved order still returns HTTP 201 to prevent retrying an already saved order. Email is best effort with no durable retry queue; use the administrator page as the order source of truth. For an end-to-end check, place one synthetic order after deployment, confirm it was saved, then inspect Resend activity and the configured inbox. Do not expose credentials or customer records in screenshots or logs.
+
 ## Vercel deployment
 
 1. An initial Vercel deployment already exists as `rova-coffee` at the URL above. Open that project in your Vercel dashboard. For a fresh deployment instead, import `liormal2000-alt/My_Shop` under **Add New → Project**. Select the repository root and the detected **Next.js** preset; use Node 24, `npm ci`, and `npm run build`.
@@ -54,7 +67,7 @@ CLI alternative after authenticating locally: `npx vercel login`, `npx vercel li
 
 ## Verification and current delivery state
 
-- `npm test`: **69 passed** (validation, mock API authorization/filter pagination and embedded PostgreSQL migration/RLS checks).
+- `npm test`: **85 passed** (validation, mock API authorization/filter pagination, mock Resend notification checks and embedded PostgreSQL migration/RLS checks).
 - `npm run typecheck`: passed.
 - `npm run build`: final production build passed (Next.js 16.4.2).
 - `npm run test:browser`: **20 passed**, desktop and mobile Chromium, with mocked catalog/order/Auth responses. Includes administrator status-filter pagination and stale-response checks. See [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for commands and scope.
