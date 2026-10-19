@@ -542,6 +542,15 @@ fieldset {
   display: flex;
   gap: 10px;
 }
+.order-status-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 260px;
+  margin: 20px 0;
+  font-size: 13px;
+}
 .table-wrap {
   overflow-x: auto;
   background: var(--white);

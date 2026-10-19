@@ -12,6 +12,7 @@ The deployed storefront shell and administrator login are reachable. **Supabase 
 - Quantity 1–100, live total preview, browser/server validation, normalized Gmail-only email, required trimmed names/address and exactly ten ASCII phone digits stored as text.
 - A database function reads the current product price and atomically saves integer-agorot price/total snapshots. Client-supplied prices/statuses are discarded. Success appears only after confirmed insertion; pending submissions are locked.
 - Supabase password login at `/admin`, one explicitly authorized administrator, newest-first order table with customer/product/pricing details, load-more pagination, sign-out, and persisted Hebrew statuses: חדשה / בטיפול / הושלמה.
+- Administrator status filtering defaults to `הכול`, uses the existing Hebrew status labels, filters in Supabase before pagination, resets to page one on selection changes, and ignores stale responses. Status updates within a filter reload page one to keep pagination consistent. Invalid API filter values return HTTP 400; administrator authorization is unchanged.
 - RLS, restrictive table/column grants, database constraints, reproducible migration+seed, automated checks and a deployed manual checklist.
 
 ## Setup (fastest path)
@@ -53,10 +54,10 @@ CLI alternative after authenticating locally: `npx vercel login`, `npx vercel li
 
 ## Verification and current delivery state
 
-- `npm test`: **59 passed** (validation, mock API authorization and embedded PostgreSQL migration/RLS checks).
+- `npm test`: **69 passed** (validation, mock API authorization/filter pagination and embedded PostgreSQL migration/RLS checks).
 - `npm run typecheck`: passed.
 - `npm run build`: final production build passed (Next.js 16.4.2).
-- `npm run test:browser`: **10 passed**, desktop and mobile Chromium, with mocked catalog/order responses. Screenshots inspected. See [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for commands and scope.
+- `npm run test:browser`: **20 passed**, desktop and mobile Chromium, with mocked catalog/order/Auth responses. Includes administrator status-filter pagination and stale-response checks. See [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for commands and scope.
 - `npm audit --omit=dev`: **0 vulnerabilities**.
 - Vercel deployment verified **Ready**. The production alias is publicly reachable: `/` and `/admin` return HTTP 200; unauthenticated `/api/admin/orders` returns HTTP 403; `/api/products` returns HTTP 503 until configured. The individual deployment URL has Vercel authentication protection; use the public production alias above.
 - Hosted Supabase migration, real Supabase integration and working live orders are **not yet performed**: no Supabase project configuration was available. No database/customer data or credentials are fabricated.

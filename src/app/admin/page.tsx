@@ -16,6 +16,7 @@ type Order = {
   status: keyof typeof statusLabels;
   products: { name: string } | null;
 };
+type StatusFilter = "" | keyof typeof statusLabels;
 export default function Admin() {
   const client = useRef<SupabaseClient | null>(null);
   const token = useRef("");
@@ -27,6 +28,10 @@ export default function Admin() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
+  const selectedFilter = useRef<StatusFilter>("");
+  const requestVersion = useRef(0);
+  const [loadingOrders, setLoadingOrders] = useState(false);
   function getClient() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -50,24 +55,50 @@ export default function Admin() {
       "Content-Type": "application/json",
     };
   }
-  async function refresh(offset = 0) {
-    const response = await fetch(`/api/admin/orders?offset=${offset}`, {
-      headers: await headers(),
-      cache: "no-store",
-    });
-    const body = await response.json();
-    if (!response.ok) throw Error(body.error);
-    setOrders((list) =>
-      offset
-        ? [
-            ...list,
-            ...body.orders.filter(
-              (next: Order) => !list.some((o) => o.id === next.id),
-            ),
-          ]
-        : body.orders,
-    );
-    setHasMore(body.orders.length === 200);
+  async function refresh(offset = 0, filter = selectedFilter.current) {
+    const version = ++requestVersion.current;
+    setLoadingOrders(true);
+    setError("");
+    setMessage("");
+    if (offset === 0) {
+      setOrders([]);
+      setHasMore(false);
+    }
+    const params = new URLSearchParams({ offset: String(offset) });
+    if (filter) params.set("status", filter);
+    try {
+      const response = await fetch(`/api/admin/orders?${params}`, {
+        headers: await headers(),
+        cache: "no-store",
+      });
+      const body = await response.json();
+      if (!response.ok) throw Error(body.error);
+      // Guard results and feedback from both earlier filters and pagination requests.
+      if (version !== requestVersion.current) return false;
+      setOrders((list) =>
+        offset
+          ? [
+              ...list,
+              ...body.orders.filter(
+                (next: Order) => !list.some((o) => o.id === next.id),
+              ),
+            ]
+          : body.orders,
+      );
+      setHasMore(body.orders.length === 200);
+      return true;
+    } catch (e) {
+      if (version === requestVersion.current)
+        setError(e instanceof Error ? e.message : "טעינת ההזמנות נכשלה");
+      return false;
+    } finally {
+      if (version === requestVersion.current) setLoadingOrders(false);
+    }
+  }
+  function changeFilter(filter: StatusFilter) {
+    selectedFilter.current = filter;
+    setStatusFilter(filter);
+    void refresh(0, filter);
   }
   async function login(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -84,11 +115,11 @@ export default function Admin() {
         password: String(form.get("password")),
       });
       if (error) throw Error("הכניסה נכשלה. בדקו את כתובת האימייל והסיסמה.");
-      try {
-        await refresh();
-      } catch (e) {
+      selectedFilter.current = "";
+      setStatusFilter("");
+      if (!(await refresh(0, ""))) {
         await db.auth.signOut();
-        throw e;
+        return;
       }
       setSignedIn(true);
     } catch (e) {
@@ -103,6 +134,10 @@ export default function Admin() {
     try {
       const { error } = await getClient().auth.signOut();
       if (error) throw error;
+      ++requestVersion.current;
+      selectedFilter.current = "";
+      setStatusFilter("");
+      setHasMore(false);
       setSignedIn(false);
       setOrders([]);
       token.current = "";
@@ -128,9 +163,15 @@ export default function Admin() {
       });
       const body = await response.json();
       if (!response.ok) throw Error(body.error);
-      setOrders((list) =>
-        list.map((o) => (o.id === id ? { ...o, status: body.status } : o)),
-      );
+      if (selectedFilter.current) {
+        // A changed status may remove a row from the filtered dataset. Reload
+        // page one so subsequent offsets do not skip a matching order.
+        await refresh();
+      } else {
+        setOrders((list) =>
+          list.map((o) => (o.id === id ? { ...o, status: body.status } : o)),
+        );
+      }
       setMessage("הסטטוס עודכן ונשמר בהצלחה.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "העדכון נכשל");
@@ -188,44 +229,44 @@ export default function Admin() {
             </div>
             <div className="admin-actions">
               <button
-                disabled={busy || !!pending}
+                disabled={busy || loadingOrders || !!pending}
                 onClick={async () => {
-                  setBusy(true);
-                  setError("");
-                  try {
-                    await refresh();
-                    setMessage("ההזמנות עודכנו.");
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : "הטעינה נכשלה");
-                  } finally {
-                    setBusy(false);
-                  }
+                  if (await refresh()) setMessage("ההזמנות עודכנו.");
                 }}
               >
                 רענון
               </button>
-              <button disabled={busy || !!pending} onClick={signOut}>
+              <button
+                disabled={busy || loadingOrders || !!pending}
+                onClick={signOut}
+              >
                 התנתקות
               </button>
             </div>
           </div>
+          <label className="order-status-filter" htmlFor="order-status-filter">
+            סינון לפי סטטוס
+            <select
+              id="order-status-filter"
+              value={statusFilter}
+              disabled={busy || !!pending}
+              onChange={(e) => changeFilter(e.target.value as StatusFilter)}
+            >
+              <option value="">הכול</option>
+              {Object.entries(statusLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
           <p>
             ההזמנות החדשות ביותר מופיעות תחילה · {orders.length} הזמנות מוצגות
           </p>
           {hasMore && (
             <button
-              disabled={busy || !!pending}
-              onClick={async () => {
-                setBusy(true);
-                setError("");
-                try {
-                  await refresh(orders.length);
-                } catch {
-                  setError("טעינת הזמנות נוספות נכשלה");
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              disabled={busy || loadingOrders || !!pending}
+              onClick={() => void refresh(orders.length)}
             >
               טעינת הזמנות נוספות
             </button>
@@ -240,7 +281,8 @@ export default function Admin() {
               {error}
             </p>
           )}
-          <div className="table-wrap">
+          {loadingOrders && <p role="status">טוענים הזמנות…</p>}
+          <div className="table-wrap" aria-busy={loadingOrders}>
             <table>
               <caption>בקשות ההזמנה שהתקבלו</caption>
               <thead>
@@ -288,7 +330,7 @@ export default function Admin() {
                       <select
                         aria-label={`סטטוס הזמנה ${o.id.slice(0, 8)}`}
                         value={o.status}
-                        disabled={!!pending || busy}
+                        disabled={!!pending || busy || loadingOrders}
                         onChange={(e) => update(o.id, e.target.value)}
                       >
                         {Object.entries(statusLabels).map(([value, label]) => (
@@ -303,8 +345,12 @@ export default function Admin() {
                 ))}
               </tbody>
             </table>
-            {!orders.length && (
-              <p className="empty">עדיין אין הזמנות. הקפה הראשון כבר מחכה.</p>
+            {!orders.length && !loadingOrders && !error && (
+              <p className="empty" role="status">
+                {statusFilter
+                  ? "אין הזמנות בסטטוס שנבחר."
+                  : "עדיין אין הזמנות. הקפה הראשון כבר מחכה."}
+              </p>
             )}
           </div>
         </section>

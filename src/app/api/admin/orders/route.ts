@@ -9,12 +9,18 @@ export async function GET(request: Request) {
         { error: "אין הרשאה לצפייה בהזמנות" },
         { status: 403 },
       );
-    const offset = Number(new URL(request.url).searchParams.get("offset") || 0);
+    const params = new URL(request.url).searchParams;
+    const status = statusSchema
+      .optional()
+      .safeParse(params.get("status") ?? undefined);
+    if (!status.success || params.getAll("status").length > 1)
+      return Response.json({ error: "מסנן סטטוס לא תקין" }, { status: 400 });
+    const offset = Number(params.get("offset") || 0);
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1000000)
       return Response.json({ error: "עמוד לא תקין" }, { status: 400 });
-    const { data, error } = await db
-      .from("orders")
-      .select("*,products(name)")
+    let query = db.from("orders").select("*,products(name)");
+    if (status.data !== undefined) query = query.eq("status", status.data);
+    const { data, error } = await query
       .order("created_at", { ascending: false })
       .range(offset, offset + 199);
     if (error) throw error;
